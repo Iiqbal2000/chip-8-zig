@@ -176,7 +176,7 @@ const CHIP8 = struct {
             },
             // skip one instruction if the value in VX is equal to NN
             0x3 => {
-                if (self.V[x_regs] == @as(u8, @intCast(nn))) {
+                if (self.V[x_regs] == nn) {
                     self.pc += 2;
                 }
 
@@ -184,7 +184,7 @@ const CHIP8 = struct {
             },
             // skip one instruction if the value in VX is not equal to NN
             0x4 => {
-                if (self.V[x_regs] != @as(u8, @intCast(nn))) {
+                if (self.V[x_regs] != nn) {
                     self.pc += 2;
                 }
 
@@ -199,7 +199,7 @@ const CHIP8 = struct {
             },
             // set nn to VX register
             0x6 => {
-                self.V[x_regs] = @as(u8, @intCast(nn));
+                self.V[x_regs] = nn;
                 self.pc += 2;
             },
             // Add NN value to VX
@@ -283,9 +283,7 @@ const CHIP8 = struct {
             },
             // if VX is not equal to VY skip one instruction
             0x9 => {
-                var x = (self.opcode & 0x0F00) >> 8;
-                var y = (self.opcode & 0x00F0) >> 4;
-                if (self.V[x] != self.V[y]) {
+                if (self.V[x_regs] != self.V[y_regs]) {
                     self.pc += 2;
                 }
 
