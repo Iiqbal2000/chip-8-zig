@@ -73,7 +73,7 @@ const CHIP8 = struct {
     delay_timer: u8,
     sound_timer: u8,
     // The graphics of the Chip 8 are black and white and the screen has a total of 2048 pixels (64 x 32)
-    display: [2048]u8,
+    display: [CHIP8_WIDTH][CHIP8_HEIGHT]u8,
     // HEX based keypad (0x0-0xF)
     keypad: [16]u8,
 
@@ -155,9 +155,12 @@ const CHIP8 = struct {
                     // 0x00E0: Clears the screen
                     0x0000 => {
                         std.debug.print("Clear screen", .{});
-                        for (&self.display) |*d| {
-                            d.* = 0;
+                        for (0..CHIP8_WIDTH) |x| {
+                            for (0..CHIP8_HEIGHT) |y| {
+                                self.display[x][y] = 0;
+                            }
                         }
+
                         self.pc += 2;
                     },
                     // 0x00EE: Returns from subroutine
@@ -452,15 +455,13 @@ const CHIP8 = struct {
                     var tX = x_coordinate + col;
                     var tY = y_coordinate + row;
 
-                    var idx = tX + tY * CHIP8_WIDTH;
-
                     // If corresponding screen pixel is also on, set collision flag
-                    if (self.display[idx] == 1) {
-                        self.display[0x0F] = 1;
+                    if (self.display[tX][tY] == 1) {
+                        self.V[0x0F] = 1;
                     }
 
                     // Set the screen pixel value
-                    self.display[idx] ^= 1;
+                    self.display[tX][tY] ^= 1;
                 }
             }
         }
@@ -525,20 +526,19 @@ pub fn main() !void {
         }
 
         // Update the display based on the CHIP-8's display state
-        for (chip8.display, 0..) |value, index| {
-            if (value == 1) {
-                // extract the pixel from 1d array
-                const x: c_int = @intCast(index % CHIP8_WIDTH);
-                const y: c_int = @intCast(index / CHIP8_WIDTH);
-                var rect = SDL.Rectangle{
-                    .x = @intCast(x * SCALE_FACTOR),
-                    .y = @intCast(y * SCALE_FACTOR),
-                    .width = @intCast(SCALE_FACTOR),
-                    .height = @intCast(SCALE_FACTOR),
-                };
+        for (0..CHIP8_WIDTH) |x| {
+            for (0..CHIP8_HEIGHT) |y| {
+                if (chip8.display[x][y] == 1) {
+                    var rect = SDL.Rectangle{
+                        .x = @intCast(x * SCALE_FACTOR),
+                        .y = @intCast(y * SCALE_FACTOR),
+                        .width = @intCast(SCALE_FACTOR),
+                        .height = @intCast(SCALE_FACTOR),
+                    };
 
-                // Fill the rectangle with a white color
-                try surface.fillRect(&rect, SDL.Color.white);
+                    // Fill the rectangle with a white color
+                    try surface.fillRect(&rect, SDL.Color.white);
+                }
             }
         }
 
