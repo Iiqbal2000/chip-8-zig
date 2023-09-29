@@ -5,10 +5,17 @@ const SDL = @import("sdl2");
 const target_os = @import("builtin").os;
 const RndGen = std.rand.DefaultPrng;
 
+const WINDOW_WIDTH: u16 = 64;
+const WINDOW_HEIGHT: u16 = 32;
+const SCALE_FACTOR: u16 = 20;
+const CHIP8_WIDTH: u16 = 64;
+const CHIP8_HEIGHT: u16 = 32;
+
 var rand = RndGen.init(100);
 
 const CHIP8Error = error{UnknownOpcode};
 
+// sprite characters with each size of 5 bytes
 const fontset = [80]u8{
     0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
     0x20, 0x60, 0x20, 0x20, 0x70, // 1
@@ -48,24 +55,25 @@ const keymap: [16]SDL.Scancode = [_]SDL.Scancode{
 };
 
 const CHIP8 = struct {
-    // current instruction
+    // this stores a current instruction
     opcode: u16,
-    // 4 kB
+    //  4096 bytes of addressable memory
     memory: [4096]u8,
-    // general purpose 8-bit registers
+    // 16 8-bit registers
     V: [16]u8,
     // This register is generally used to store memory addresses
     I: u16,
-    // pc is used to store the currently executing address
+    // pc is used to store the address of the next instruction
     pc: u16,
     // stack is used to call and return from subroutines (“functions”)
     stack: [16]u16,
     // sp is used to point to the topmost level of the stack
     sp: u8,
+    // this stores a time to control the animation of the display
     delay_timer: u8,
     sound_timer: u8,
     // The graphics of the Chip 8 are black and white and the screen has a total of 2048 pixels (64 x 32)
-    display: [64 * 32]u8,
+    display: [2048]u8,
     // HEX based keypad (0x0-0xF)
     keypad: [16]u8,
 
@@ -93,7 +101,7 @@ const CHIP8 = struct {
 
     fn load(self: *CHIP8, path: []const u8) !void {
         if (!std.fs.path.isAbsolute(path)) {
-            std.log.err("{s}", .{"program needs a absolute path"});
+            std.log.err("{s}", .{"the program needs a absolute path"});
             std.process.exit(1);
         }
 
@@ -119,12 +127,12 @@ const CHIP8 = struct {
     }
 
     fn emulate_cycle(self: *CHIP8) CHIP8Error!void {
-        // Fetches a 2-byte opcode from memory.
+        // Fetches a 2-byte opcode from memory
         self.opcode = (@as(u16, self.memory[self.pc]) << 8) | @as(u16, self.memory[self.pc + 1]);
 
         std.debug.print("0x{x}\n", .{self.opcode});
 
-        // Decodes and executes the opcode.
+        // Decodes a common sign the opcode
         var first_nibble: u16 = (self.opcode >> 12) & 0x000F;
 
         // get a value of the X register
@@ -138,12 +146,12 @@ const CHIP8 = struct {
         // get the 12-bit nnn value
         var nnn: u16 = self.opcode & 0x0FFF;
 
-        // some common opcode categories and their corresponding first nibble ranges
+        // common opcode categories and their corresponding first nibble ranges
         switch (first_nibble) {
             0x0 => {
-                var last_four_bits: u16 = self.opcode & 0x000F;
+                var msb: u16 = self.opcode & 0x000F;
 
-                switch (last_four_bits) {
+                switch (msb) {
                     // 0x00E0: Clears the screen
                     0x0000 => {
                         std.debug.print("Clear screen", .{});
@@ -160,11 +168,12 @@ const CHIP8 = struct {
                         self.pc += 2;
                     },
                     else => {
-                        std.debug.print("UnknownOpcode: 0x{x}\n", .{last_four_bits});
+                        std.debug.print("UnknownOpcode: 0x{x}\n", .{msb});
                         return CHIP8Error.UnknownOpcode;
                     },
                 }
             },
+            // jump to NNN location
             0x1 => {
                 self.pc = nnn;
             },
@@ -289,10 +298,12 @@ const CHIP8 = struct {
 
                 self.pc += 2;
             },
+            // Set NNN to the I regs
             0xA => {
                 self.I = nnn;
                 self.pc += 2;
             },
+            // Jump to a address of V regs + NNN
             0xB => {
                 self.pc = self.V[0] + nnn;
             },
@@ -301,6 +312,7 @@ const CHIP8 = struct {
                 self.V[x_regs] = rand.random().int(u8) & @as(u8, @intCast(nn));
                 self.pc += 2;
             },
+            // Draw n-byte sprite
             0xD => {
                 try self.draw(self.V[x_regs], self.V[y_regs], n);
                 self.pc += 2;
@@ -376,6 +388,7 @@ const CHIP8 = struct {
                         self.I = self.V[x_regs] * 0x5;
                         self.pc += 2;
                     },
+                    // Store BCD representation
                     0x33 => {
                         const i: usize = @intCast(self.I);
                         self.memory[i] = self.V[x_regs] / 100;
@@ -420,29 +433,34 @@ const CHIP8 = struct {
         }
     }
 
-    pub fn draw(self: *CHIP8, VX: u16, VY: u16, N: u16) !void {
-        var x_coordinate: u16 = VX & 63;
-        var y_coordinate: u16 = VY & 31;
-        // used to indicate a pixel collision
+    pub fn draw(self: *CHIP8, VX: u16, VY: u16, height: u16) !void {
+        var x_coordinate: u16 = VX % CHIP8_WIDTH;
+        var y_coordinate: u16 = VY % CHIP8_HEIGHT;
+        // initialize collision flag to 0 (no collision)
         self.V[0xF] = 0;
 
-        for (0..N) |row| {
-            var pixel = self.memory[self.I + row];
+        // Iterate over each row of the sprite
+        for (0..height) |row| {
+            var sprite = self.memory[self.I + row];
             var col: usize = 0;
+
+            // Iterate over each pixel in sprite byte (8 pixels per byte)
             while (col < 8) : (col += 1) {
-                const msb: u8 = 0x80;
-                const j: u3 = @intCast(col);
-                if ((pixel & (msb >> j)) != 0) {
+                const mask: u8 = 0x80;
+                const pixel: u8 = sprite & (mask >> @as(u3, @intCast(col)));
+                if (pixel != 0) {
                     var tX = x_coordinate + col;
                     var tY = y_coordinate + row;
 
-                    var idx = tX + tY * 64;
+                    var idx = tX + tY * CHIP8_WIDTH;
 
-                    self.display[idx] ^= 1;
-
-                    if (self.display[idx] == 0) {
+                    // If corresponding screen pixel is also on, set collision flag
+                    if (self.display[idx] == 1) {
                         self.display[0x0F] = 1;
                     }
+
+                    // Set the screen pixel value
+                    self.display[idx] ^= 1;
                 }
             }
         }
@@ -453,7 +471,7 @@ pub fn main() !void {
     try SDL.init(.{ .video = true });
     defer SDL.quit();
 
-    var window = try SDL.createWindow("CHIP-8 Emulator", SDL.WindowPosition.centered, SDL.WindowPosition.centered, 1024, 512, .{});
+    var window = try SDL.createWindow("CHIP-8 Emulator", SDL.WindowPosition.centered, SDL.WindowPosition.centered, WINDOW_WIDTH * SCALE_FACTOR, WINDOW_HEIGHT * SCALE_FACTOR, .{});
     defer window.destroy();
 
     var surface = try window.getSurface();
@@ -508,17 +526,15 @@ pub fn main() !void {
 
         // Update the display based on the CHIP-8's display state
         for (chip8.display, 0..) |value, index| {
-            // Calculate the x coordinate (0-63)
-            const x: c_int = @intCast(index % 64);
-            // Calculate the y coordinate (0-31)
-            const y: c_int = @intCast(index / 64);
-
             if (value == 1) {
+                // extract the pixel from 1d array
+                const x: c_int = @intCast(index % CHIP8_WIDTH);
+                const y: c_int = @intCast(index / CHIP8_WIDTH);
                 var rect = SDL.Rectangle{
-                    .x = @intCast(x * 16),
-                    .y = @intCast(y * 16),
-                    .width = @intCast(16),
-                    .height = @intCast(16),
+                    .x = @intCast(x * SCALE_FACTOR),
+                    .y = @intCast(y * SCALE_FACTOR),
+                    .width = @intCast(SCALE_FACTOR),
+                    .height = @intCast(SCALE_FACTOR),
                 };
 
                 // Fill the rectangle with a white color
