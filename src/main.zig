@@ -130,7 +130,7 @@ const CHIP8 = struct {
         // Fetches a 2-byte opcode from memory
         self.opcode = (@as(u16, self.memory[self.pc]) << 8) | @as(u16, self.memory[self.pc + 1]);
 
-        std.debug.print("0x{x}\n", .{self.opcode});
+        // std.debug.print("0x{x}\n", .{self.opcode});
 
         // Decodes a common sign the opcode
         var first_nibble: u16 = (self.opcode >> 12) & 0x000F;
@@ -165,7 +165,7 @@ const CHIP8 = struct {
                     },
                     // 0x00EE: Returns from subroutine
                     0x000E => {
-                        std.debug.print("0x00EE: Returns from subroutine ", .{});
+                        std.debug.print("0x00EE: Returns from subroutine \n", .{});
                         self.sp -= 1;
                         self.pc = self.stack[self.sp];
                         self.pc += 2;
@@ -362,6 +362,7 @@ const CHIP8 = struct {
                         }
 
                         if (!pressed)
+                            // self.pc -= 2;
                             return;
 
                         self.pc += 2;
@@ -509,6 +510,7 @@ pub fn main() !void {
                     // Update the CHIP-8 keypad state based on the key pressed
                     for (0..keymap.len) |key_index| {
                         if (keyEvent.scancode == keymap[key_index]) {
+                            std.debug.print("key pressed: {s}\nscancode: {s}\n", .{ @tagName(keymap[key_index]), @tagName(keyEvent.scancode) });
                             chip8.keypad[key_index] = 1;
                         }
                     }
